@@ -95,11 +95,24 @@ Key reuse from `chat.py`:
 
 ## search_app.py (Gradio)
 
-Single-page Gradio app:
+Hybrid retrieval: FTS + vector search run in parallel, fused with RRF, with optional Ollama reranker.
 
-- **Input:** text search box + "Search" button + top-K slider (1–20, default 5)
-- **Action:** `get_text_embedding(query)` → Pinecone `query(vector=..., top_k=k)` → fetch rows from Supabase by `pinecone_id`
-- **Output:** table showing filename, description, similarity score
+```
+query
+  ├─→ Supabase FTS  (websearch on description_fts tsvector column)
+  └─→ Pinecone      (embeddinggemma → cosine similarity)
+           ↓  parallel via ThreadPoolExecutor
+       Reciprocal Rank Fusion: score = Σ 1/(60 + rank_i)
+           ↓
+       top-N IDs → Supabase SELECT by id IN (...)
+           ↓
+  [optional] Ollama reranker (VISION_MODEL)  ← Gradio checkbox
+           ↓
+       results table
+```
+
+- **Input:** text query + top-K slider (1–20, default 5) + "Rerank with Ollama" checkbox (default off)
+- **Output:** table — filename, description, angle, footage, duration_s, RRF score, source (fts / vector / fts+vector)
 - Launch with `python search_app.py` (Gradio default port 7860)
 
 ## requirements.txt

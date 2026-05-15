@@ -218,7 +218,6 @@ def chat_loop(client: ollama.Client, model: str, use_history: bool):
                 response_text += token
         except ollama.ResponseError as e:
             print(f"\n  Ollama error: {e}")
-            print("  Tip: multimodal files require a vision model like llava.")
             continue
         except Exception as e:
             print(f"\n  Error: {e}")

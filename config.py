@@ -9,7 +9,7 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "embeddinggemma")
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 PINECONE_INDEX = os.getenv("PINECONE_INDEX", "video-search")
-PINECONE_DIMENSION = 768
+PINECONE_DIMENSION = int(os.getenv("PINECONE_DIMENSION", "768"))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")

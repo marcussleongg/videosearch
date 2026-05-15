@@ -9,13 +9,46 @@ Usage:
 """
 
 import argparse
+import base64
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
 import config
-from embeddings import extract_video_frames, get_description, get_embedding
+from embeddings import get_description, get_embedding
+
+
+def extract_video_frames(video_path: str) -> tuple[list[str], float]:
+    """Return (list of base64 JPEG frames, duration in seconds)."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-of", "csv=p=0",
+         "-show_entries", "format=duration", video_path],
+        capture_output=True, text=True,
+    )
+    try:
+        duration = float(probe.stdout.strip())
+    except ValueError:
+        duration = 60.0
+
+    num_frames = max(1, int(duration / 2))
+    frames = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i in range(num_frames):
+            t = duration * (i + 0.5) / num_frames
+            out = f"{tmpdir}/frame{i}.jpg"
+            subprocess.run(
+                ["ffmpeg", "-ss", str(t), "-i", video_path,
+                 "-frames:v", "1", "-q:v", "2", out],
+                capture_output=True,
+            )
+            p = Path(out)
+            if p.exists():
+                frames.append(base64.b64encode(p.read_bytes()).decode())
+
+    return frames, duration
 
 
 def get_pinecone_index():

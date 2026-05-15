@@ -1,3 +1,10 @@
+# Search
+
+```bash
+python search_app.py
+# Opens at http://localhost:7860
+```
+
 # Ingestion
 
 ```bash
@@ -22,6 +29,7 @@ python ingest.py --folder /path/to/videos
 # Design decisions:
 
 - 1 frame per 2 seconds for frame extraction
+- While a LLM can be used to rerank the results after RRF, its use is dependent on the use case of the search. If precision is necessary with a small number of videos (e.g. top-k 5), then reranking would provide better results. In this hypothetical use case of providing a large set of videos that do not have to be too precise (and considering the costs in terms of going through each video for reranking), then a LLM rerank might be less viable. In this project, it is included with usage optional.
 
 (1) https://arxiv.org/abs/2201.10005
 (2) https://arxiv.org/abs/2603.08077
