@@ -23,18 +23,17 @@ def _fts_search(client, query: str, top_k: int) -> list[str]:
     rows = (
         client.table("videos")
         .select("id")
-        .text_search("description_fts", query, options={"type": "websearch"})
-        .limit(top_k)
+        .text_search("description_fts", query, options={"type": "web_search", "config": "english"})
         .execute()
         .data
     )
-    return [r["id"] for r in rows]
+    return [r["id"] for r in rows][:top_k]
 
 
-def _vector_search(index, query: str, top_k: int) -> list[str]:
+def _vector_search(index, query: str, top_k: int, min_score: float) -> list[str]:
     vector = get_embedding(query)
     results = index.query(vector=vector, top_k=top_k, include_metadata=False)
-    return [m["id"] for m in results["matches"]]
+    return [m["id"] for m in results["matches"] if m["score"] >= min_score]
 
 
 def _rrf_fuse(ranked_lists: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
@@ -70,33 +69,36 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
     return [candidates[i] for i in indices if i < len(candidates)]
 
 
-def search(query: str, top_k: int, use_reranker: bool = False) -> list[dict]:
+def search(query: str, top_k: int, use_reranker: bool = False, min_score: float = 0.0) -> tuple[list[dict], str]:
     """
-    Returns a list of result dicts with keys:
-      filename, description, angle, footage, duration_s, score, source
+    Returns (results, stats_str).
+    results: list of dicts with keys filename, description, angle, footage,
+             duration_s, score, source, file_path
+    stats_str: human-readable retrieval counts, e.g. "FTS: 0 · Vector: 5 · Fused: 5"
     """
     query = query.strip()
     if not query:
-        return []
+        return [], ""
 
     client, index = _clients()
     candidate_k = top_k * 3
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         fts_future = pool.submit(_fts_search, client, query, candidate_k)
-        vec_future = pool.submit(_vector_search, index, query, candidate_k)
+        vec_future = pool.submit(_vector_search, index, query, candidate_k, min_score)
     fts_ids = fts_future.result()
     vec_ids = vec_future.result()
 
     fused = _rrf_fuse([fts_ids, vec_ids])[:top_k]
     if not fused:
-        return []
+        stats = f"FTS: {len(fts_ids)} · Vector: {len(vec_ids)}"
+        return [], stats
 
     ids = [doc_id for doc_id, _ in fused]
     rows_by_id = {
         r["id"]: r
         for r in client.table("videos")
-        .select("id,filename,description,angle,footage,duration_s")
+        .select("id,filename,file_path,description,angle,footage,duration_s")
         .in_("id", ids)
         .execute()
         .data
@@ -118,15 +120,17 @@ def search(query: str, top_k: int, use_reranker: bool = False) -> list[dict]:
         desc = row["description"] or ""
         results.append({
             "filename": row["filename"],
-            "description": desc[:200] + ("…" if len(desc) > 200 else ""),
+            "description": desc,
             "angle": row["angle"] or "",
             "footage": row["footage"] or "",
             "duration_s": row["duration_s"],
             "score": round(score, 4),
             "source": "+".join(sources) or "unknown",
+            "file_path": row["file_path"] or "",
         })
 
     if use_reranker and results:
         results = _rerank(query, results)
 
-    return results
+    stats = f"FTS: {len(fts_ids)} · Vector: {len(vec_ids)}"
+    return results, stats
