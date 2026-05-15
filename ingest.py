@@ -36,72 +36,84 @@ def get_supabase_client():
     return create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
 
 
-def ingest(video_path: str, dry_run: bool) -> bool:
-    """Returns True on success, False on failure."""
+def already_ingested(client, filename: str) -> bool:
+    result = client.table("videos").select("id").eq("filename", filename).execute()
+    return len(result.data) > 0
+
+
+def ingest(video_path: str, dry_run: bool, client=None, index=None) -> str:
+    """Returns 'ok', 'skipped', or 'error'."""
     path = Path(video_path).expanduser().resolve()
     if not path.exists():
-        print(f"File not found: {path}")
-        return False
+        print(f"  File not found: {path}")
+        return "error"
 
-    print(f"Video:  {path.name}")
+    try:
+        if not dry_run:
+            if client is None:
+                client = get_supabase_client()
+            if already_ingested(client, path.name):
+                print(f"  Skipping — already ingested.")
+                return "skipped"
 
-    print("Extracting frames (1 per 2s)...")
-    frames, duration = extract_video_frames(str(path))
-    print(f"  {len(frames)} frames extracted  |  duration: {duration:.1f}s")
+        print("  Extracting frames (1 per 2s)...")
+        frames, duration = extract_video_frames(str(path))
+        print(f"  {len(frames)} frames extracted  |  duration: {duration:.1f}s")
 
-    print("Generating description with Gemma4...")
-    description = get_description(frames)
+        print("  Generating description with Gemma4...")
+        description = get_description(frames)
 
-    angle = re.search(r'\[Angle: (.+?)\]', description)
-    footage = re.search(r'\[Footage: (.+?)\]', description)
-    angle = angle.group(1) if angle else None
-    footage = footage.group(1) if footage else None
+        angle = re.search(r'\[Angle: (.+?)\]', description)
+        footage = re.search(r'\[Footage: (.+?)\]', description)
+        angle = angle.group(1) if angle else None
+        footage = footage.group(1) if footage else None
 
-    print(f"\nDescription:\n{description}")
-    print(f"Angle: {angle}  |  Footage: {footage}\n")
+        print(f"\n  Description:\n  {description}")
+        print(f"  Angle: {angle}  |  Footage: {footage}\n")
 
-    if dry_run:
-        print("[dry-run] Skipping Pinecone and Supabase writes.")
-        return True
+        if dry_run:
+            print("  [dry-run] Skipping Pinecone and Supabase writes.")
+            return "ok"
 
-    print("Embedding description...")
-    vector = get_embedding(description)
-    print(f"  Vector dim: {len(vector)}")
+        print("  Embedding description...")
+        vector = get_embedding(description)
 
-    video_id = str(uuid4())
+        video_id = str(uuid4())
 
-    print("Inserting to Supabase...")
-    client = get_supabase_client()
-    client.table("videos").insert({
-        "id": video_id,
-        "filename": path.name,
-        "file_path": str(path),
-        "description": description,
-        "duration_s": duration,
-        "frame_count": len(frames),
-        "angle": angle,
-        "footage": footage,
-    }).execute()
-    print(f"  ID: {video_id}")
-
-    print("Upserting to Pinecone...")
-    index = get_pinecone_index()
-    index.upsert(vectors=[{
-        "id": video_id,
-        "values": vector,
-        "metadata": {
+        print("  Inserting to Supabase...")
+        client.table("videos").insert({
+            "id": video_id,
             "filename": path.name,
-            "description": description[:1000],
+            "file_path": str(path),
+            "description": description,
             "duration_s": duration,
             "frame_count": len(frames),
             "angle": angle,
             "footage": footage,
-        },
-    }])
-    print(f"  Pinecone ID: {video_id}")
+        }).execute()
 
-    print("Done.")
-    return True
+        print("  Upserting to Pinecone...")
+        if index is None:
+            index = get_pinecone_index()
+        index.upsert(vectors=[{
+            "id": video_id,
+            "values": vector,
+            "metadata": {
+                "filename": path.name,
+                "description": description[:1000],
+                "duration_s": duration,
+                "frame_count": len(frames),
+                "angle": angle or "unknown",
+                "footage": footage or "unknown",
+            },
+        }])
+
+        print(f"  Done. ID: {video_id}")
+        return "ok"
+
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        return "error"
 
 
 def main():
@@ -115,25 +127,36 @@ def main():
 
     if args.folder:
         folder = Path(args.folder).expanduser().resolve()
-        videos = sorted(folder.glob("*.mp4"))
+        videos = sorted(p for p in folder.glob("*.mp4") if not p.name.startswith("._"))
         if not videos:
             sys.exit(f"No .mp4 files found in {folder}")
         print(f"Found {len(videos)} video(s) in {folder}\n")
-        succeeded, failed = [], []
+        client = None if args.dry_run else get_supabase_client()
+        index = None if args.dry_run else get_pinecone_index()
+        succeeded, skipped, failed = [], [], []
         for i, video in enumerate(videos, 1):
             print(f"[{i}/{len(videos)}] {video.name}")
             print("-" * 40)
-            ok = ingest(str(video), args.dry_run)
-            (succeeded if ok else failed).append(video.name)
+            status = ingest(str(video), args.dry_run, client=client, index=index)
+            if status == "ok":
+                succeeded.append(video.name)
+            elif status == "skipped":
+                skipped.append(video.name)
+            else:
+                failed.append(video.name)
             print()
         print("=" * 40)
-        print(f"Done: {len(succeeded)} succeeded, {len(failed)} failed")
+        print(f"Done: {len(succeeded)} ingested, {len(skipped)} skipped, {len(failed)} failed")
         if failed:
             print("Failed:")
             for name in failed:
                 print(f"  - {name}")
     else:
-        ingest(args.video, args.dry_run)
+        status = ingest(args.video, args.dry_run)
+        if status == "skipped":
+            print("Already ingested, skipping.")
+        elif status == "error":
+            sys.exit(1)
 
 
 if __name__ == "__main__":
