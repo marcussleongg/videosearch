@@ -1,8 +1,10 @@
 # Locally Hosted Models System for Video Ingestion and Natural Language Search
 
-This project sets up a full pipeline of ingesting videos and natural language querying to search for videos. While the search experience has been built into a user-friendly gradio frontend, the ingestion process is one that requires running CLI commands. Using it requires setting up Supabase and Pinecone databases, and installing Ollama along with the preferred models. Steps taken to set up the full system is documented [here](#setup). The rationale for using locally hosted models for this project is to test the capabilities of new open-weight models (I used [gemma4:e2b](https://huggingface.co/google/gemma-4-E2B)), specifically on limited hardware of a M2 MacBook Air (really put my laptop through its paces here), and thus avoiding costs of API calls. Furthermore, I used [embeddinggemma](https://huggingface.co/google/embeddinggemma-300m) as the dedicated embedding model, the choice here made to simply stay in the Gemma ecosystem with little drawbacks.
+This project sets up a full pipeline of ingesting videos and natural language querying to search for videos. While the search experience has been built into a user-friendly gradio frontend, the ingestion process is one that requires running CLI commands. Using it requires setting up Supabase and Pinecone databases, and installing Ollama along with your preferred models. Steps taken to set up the full system is documented [here](#setup).
 
-The project was built around Ollama's limitations on the modalities of input. Thus the full (video-native, audio) capabilties of Gemma4 was not fully utilized. I discuss this more in the [Considerations](#consideration) section. The system is built to be as model-agnostic as possible, so if a different models on Ollama are to be used, it simply requires changing the model name in .env,
+The rationale for using locally hosted models for this project is to test the capabilities of new open-weight models (I used [gemma4:e2b](https://huggingface.co/google/gemma-4-E2B)), specifically on limited hardware of a M2 MacBook Air (really put my laptop through its paces here), and thus avoiding costs of API calls. Furthermore, I used [embeddinggemma](https://huggingface.co/google/embeddinggemma-300m) as the dedicated embedding model, with the choice here being made to stay in the Gemma ecosystem, while it comes with little drawbacks.
+
+The project was built around Ollama's limitations on the modalities of input. Thus the full multimodal (video-native, audio) capabilties of Gemma4 was not fully utilized. I discuss this more in the [Considerations](#consideration) section. The system is built to be as model-agnostic as possible, so if a different models on Ollama are to be used, it simply requires changing the model name in .env, although using a completely different approach like API calls would require much more involved changes to be made in the code.
 
 The videos I used as data in this project are subsets of Meta's PE Video Dataset [(1)](#references), along with first and third person videos from Ai2's Charades-Ego dataset [(2)](#references).
 
@@ -66,7 +68,7 @@ The videos I used as data in this project are subsets of Meta's PE Video Dataset
                   │
                   ▼
         Reciprocal Rank Fusion
-        score = Σ 1 / (60 + rank_i)
+        score = Σ 1 / (K(60) + rank_i)
         results found by both paths score higher
                   │
                   ▼
@@ -102,17 +104,17 @@ python ingest.py --folder /path/to/videos
 
 # Considerations:
 
-- Ollama does not have an exposed API for video attachments, hence a manual frame extraction is required
-- Use of embeddings from generative model (Gemma4:e2b) vs embeddings from a dedicated embedding model because recent papers. Although it has been the case that dedicated embedding models provide for better vector search results due to contrastive pretraining [(3)](#references), recent papers have claimed that embeddings from generative models' hidden states can do as well if not better [(4,5)](#references).
-- Ollama does not have an exposed API to get raw embeddings from hidden layers, rendering the option of embeddings from generative model unviable (same issue for llama.cpp)
-- embeddinggemma has 768-dim vectors, not an issue here but potentially an issue at scale
-- Gemma4:e2b via Ollama does not take in audio natively, hence this project will not allow for semantic search via audio. Adding this in would simply be either: extracting audio file and sending it directly to a multimodal model to extract the transcription and other audio features, or having a separate model to transcribe speech and a multimodal model to extract the other audio features.
-- Could have implemented a "filtered" search, where options like angle and footage type can be specified before the search, but given the limited video library size in this project, it is left out and instead the filter is post retrieval.
+- Ollama does not have an exposed API for video attachments, hence manual frame extraction is required.
+- Use of embeddings from generative model (Gemma4:e2b) vs embeddings from a dedicated embedding model was a tough consideration made. Although it has been the case that dedicated embedding models provide for better vector search results due to contrastive pretraining [(3)](#references), recent papers have claimed that embeddings from generative models' hidden states can do as well if not better [(4,5)](#references).
+- Ollama does not have an exposed API to get raw embeddings from hidden layers, rendering the option of embeddings from generative model unviable (same issue with llama.cpp).
+- embeddinggemma has 768-dim vectors, not an issue here but potentially an issue at scale in the event that 768 dimensions are insufficient to capture details that allow for clear separation of individual videos.
+- Gemma4:e2b via Ollama does not take in audio natively, hence this system does not allow for semantic search that includes audio. Adding this in would simply be either: extracting an audio file from the video and sending it directly to a multimodal model to extract the transcription and other audio features, or having a separate model to transcribe speech and a multimodal model to extract the other audio features. Including audio would have allowed for more nuanced search, in the event that audio is something specific to be had.
+- Could have implemented a "filtered" search, where options like angle and footage type can be specified before the search, but given the limited video library size in this project, it is left out and instead the filter is post retrieval. Implementation would likely have required the use of namespaces in the vector database to allow for a viable "filtered" search without being bogged down by the initial hop, check, and select vector process.
 
 # Design decisions:
 
-- 1 frame per 2 seconds for frame extraction
-- While a LLM can be used to rerank the results after RRF, its use is dependent on the use case of the search. If precision is necessary with a small number of videos (e.g. top-k 5), then reranking would provide better results. In a use case of having a large set of videos post-RRF, despite sending all video descriptions as one query to the LLM, this can fill up the context window with many video descriptions and reranking might also perform poorly, a LLM rerank might be less viable. In this project, it is included with usage optional. Using it will result in longer waiting times.
+- 1 frame per 2 seconds for frame extraction.
+- A LLM can be used to rerank the results after RRF, its use is dependent on the use case of the search. If precision is necessary with a small number of videos (e.g. top-k 5), then reranking would provide better results. In a use case of having a large set of videos post-RRF, despite sending all video descriptions as one query to the LLM, this can fill up the context window with many video descriptions and reranking might also perform poorly, a LLM rerank might be less viable. In this project, it is included with usage optional, and uses the same model that was used for ingestion. Using it will result in longer waiting times upon a query.
 - We return top_k \* 3 for the number of results from a Pinecone vector search to allow for a larger pool of items before RRF.
 - Allowed for a min vector score filter, that only returns search results with a Pinecone vector search score above the set threshold. This allows users to specify how semantically close they want their results to be to their query.
 

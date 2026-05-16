@@ -36,7 +36,7 @@ def _vector_search(index, query: str, top_k: int, min_score: float) -> list[str]
     return [m["id"] for m in results["matches"] if m["score"] >= min_score]
 
 
-def _rrf_fuse(ranked_lists: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
+def _rrf_fuse(ranked_lists: list[list[str]], k: int = config.RRF_K) -> list[tuple[str, float]]:
     scores: dict[str, float] = {}
     for ranked_list in ranked_lists:
         for rank, doc_id in enumerate(ranked_list):
@@ -55,7 +55,7 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
         "most relevant first. One number per line. Example:\n3\n1\n2"
     )
     response = ollama.chat(
-        model=config.VISION_MODEL,
+        model=config.RERANK_MODEL,
         messages=[{"role": "user", "content": prompt}],
     )
     indices = []
