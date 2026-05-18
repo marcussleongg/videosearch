@@ -1,5 +1,11 @@
 # Locally Hosted Models System for Video Ingestion and Natural Language Search
 
+
+
+https://github.com/user-attachments/assets/83c272cc-489e-4ec3-bb1a-7f749e61d5f6
+
+
+
 This project sets up a full pipeline of ingesting videos and natural language querying to search for videos. While the search experience has been built into a user-friendly gradio frontend, the ingestion process is one that requires running CLI commands. Using it requires setting up Supabase and Pinecone databases, and installing Ollama along with your preferred models. Steps taken to set up the full system is documented [here](#setup).
 
 The rationale for using locally hosted models for this project is to test the capabilities of new open-weight models (I used [gemma4:e2b](https://huggingface.co/google/gemma-4-E2B)), specifically on limited hardware of a M2 MacBook Air (really put my laptop through its paces here), and thus avoiding costs of API calls. Furthermore, I used [embeddinggemma](https://huggingface.co/google/embeddinggemma-300m) as the dedicated embedding model, with the choice here being made to stay in the Gemma ecosystem, while it comes with little drawbacks.
