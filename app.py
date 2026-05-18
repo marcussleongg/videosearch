@@ -52,7 +52,7 @@ def _on_row_select(results, evt: gr.SelectData):
 
 _check_ollama()
 
-with gr.Blocks(title="Video Search", theme=gr.themes.Default(primary_hue="purple")) as app:
+with gr.Blocks(title="Video Search") as app:
     gr.Markdown("## Video Search")
     results_state = gr.State([])
     with gr.Row():
@@ -77,4 +77,4 @@ with gr.Blocks(title="Video Search", theme=gr.themes.Default(primary_hue="purple
     results_table.select(fn=_on_row_select, inputs=[results_state], outputs=[player, desc_box])
 
 if __name__ == "__main__":
-    app.launch(allowed_paths=["/"])
+    app.launch(allowed_paths=["/"], theme=gr.themes.Default(primary_hue="purple"))
